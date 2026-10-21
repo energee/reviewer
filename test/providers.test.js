@@ -44,3 +44,19 @@ test('OpenAI surfaces actionable API failures', async () => {
   }), /OpenAI Responses API request failed \(429/);
 });
 
+
+test('unavailable context does not leak backend error details into model requests', async () => {
+  const privateDetail = 'private-backend-credential-should-not-be-forwarded';
+  const sent = [];
+  await review({
+    ...base, provider: 'openai', apiKey: 'key',
+    readFile: async () => { throw new Error(privateDetail); },
+    fetchImpl: async (_url, init) => {
+      sent.push(init.body);
+      return response(sent.length === 1
+        ? { id: 'lookup', output: [{ type: 'function_call', name: 'read_file', call_id: 'read', arguments: JSON.stringify({ path: 'src/a.ts' }) }] }
+        : { id: 'finish', output: [{ type: 'function_call', name: 'submit_review', call_id: 'done', arguments: JSON.stringify(submitted) }] });
+    },
+  });
+  assert.equal(sent.some(body => body.includes(privateDetail)), false);
+});

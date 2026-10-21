@@ -4,15 +4,15 @@ A reusable GitHub Action. No backend, database, dashboard, or agent framework.
 
 ## User experience
 
-One workflow and an Anthropic API key. Review opened, synchronized, reopened, ready, and retargeted PRs. Skip drafts, forks without secrets, and generated fix PRs. Publish one updated summary and actionable inline findings on additions or deletions. Read relevant repository context through bounded tools. Reconcile findings on subsequent pushes. Propose fixes automatically in one draft companion PR for same-repository PRs. Never change the author's branch or merge.
+One workflow and your chosen provider credentials. Review opened, synchronized, reopened, ready, and retargeted PRs; accept trusted discussion commands. Skip drafts, forks without secrets, and generated fix PRs. Publish one updated summary and actionable inline findings on additions or deletions. Read relevant repository context through bounded tools. Reconcile findings on subsequent pushes. Propose fixes automatically in one draft companion PR for same-repository PRs. Never change the author's branch or merge.
 
 ## Architecture
 
-Strict TypeScript targeting Node 24 ESM, native fetch, no runtime dependencies. Compile and commit `dist/` so consumers need no install/build step. Enforce strict compilation and typed ESLint rules against explicit `any`, unsafe operations, and unsafe type assertions. Four modules: GitHub API/state and publishing; bounded Anthropic tool-use reviewer; action orchestration; patch validation. Use GitHub content/tree APIs at the exact PR SHA, not an untrusted checkout. Read/search/list tools only. A structured submit_review tool returns findings and optional exact-match replacements. External JSON is unknown until runtime validation. The coordinator discards stale results before writes.
+Strict TypeScript targeting Node 24 ESM, native fetch, no runtime library dependencies. Compile and commit `dist/` so API consumers need no install/build step; the subscription engine uses an explicitly installed unmodified Claude Code CLI. Enforce strict compilation and typed ESLint rules against explicit `any`, unsafe operations, and unsafe type assertions. Small modules separate GitHub transport, disclosure-safe context, bounded provider review, PR state, and patch proposals. Use GitHub content/tree APIs at the exact PR SHA, not an untrusted checkout. Read/search/list tools only. A structured submit_review tool returns findings and optional exact-match replacements. External JSON is unknown until runtime validation. The coordinator discards stale results before writes.
 
 ## Shared module contracts
 
-`src/reviewer.ts` exports typed `review(options): Promise<ReviewResult>`. Findings contain path, changed line, diff side, severity, category, title, explanation, and an optional exact replacement. Tools read/search/list tracked repository files at the reviewed SHA; they cannot run code. Anthropic endpoint is fixed, model configurable. `fetchImpl` permits offline HTTP fixture verification.
+`src/reviewer.ts` exports typed `review(options): Promise<ReviewResult>`. Findings contain path, changed line, diff side, severity, category, title, explanation, and an optional exact replacement. Tools read/search/list tracked repository files at the reviewed SHA; they cannot run code. Direct API endpoints are fixed; Claude subscription requests stay inside the official CLI. Models are configurable. `fetchImpl` permits offline HTTP fixture verification.
 
 `src/github.ts` exports typed endpoint methods with runtime response decoders. No model-provided URLs. `src/fixes.ts` validates unique non-overlapping replacements, preserves file modes, and publishes draft companion PRs without writing to the author branch.
 
@@ -23,6 +23,8 @@ Repository content and model responses cannot authorize actions. No arbitrary co
 ## Verification
 
 Offline integration smoke uses HTTP fixtures for Anthropic and GitHub, exercises actual action entrypoint, tool context reads, initial and subsequent reviews, stale SHA, draft/fork skips, fix creation/update, malformed model output, invalid patches, and permission failures. No claim of live API validation without credentials.
+
+Live subscription/GitHub verification on temporary evaluation PR #6 detected a real authorization defect, produced the correct draft fix PR #7, avoided duplicate comments on a second pass, and reported a clean result after the fix. Hosted CI exercised the packaged Action without installing dependencies and verified the generated output. Direct Anthropic/OpenAI API credentials remain unavailable; those paths are protocol-fixture verified, not live-model verified.
 
 ## Adversarial review
 
@@ -48,3 +50,5 @@ Release priorities:
 6. Let trusted collaborators request another review or dismiss an intentional finding directly in PR discussion.
 
 Verification proceeds locally first, using the owner's already-authenticated official Claude CLI and the real GitHub PR. Do not copy local credentials into GitHub. Add automatic model credentials only when the owner supplies a repository secret. CI must prove the checked-in Action build runs on GitHub independently of live model availability. Release notes must distinguish exercised paths from unavailable credentials.
+
+Final adversarial release checks additionally track the native large-review timeout (#8), durable feedback queues (#9), discriminated native request schemas (#10), and clean distribution integrity (#11). The supported workflow uses one non-canceling `queue: max` group per PR. Local/CI review invocations must not overlap for the same PR.
