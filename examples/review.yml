@@ -22,6 +22,6 @@ jobs:
       cancel-in-progress: false
     steps:
       # No checkout: PR code is read through GitHub's API, never executed.
-      - uses: energee/reviewer@v1.0.0
+      - uses: energee/reviewer@v1.1.0
         with:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
