@@ -40,7 +40,7 @@ for (const option of ['fork', 'draft']) {
   });
 }
 
-for (const option of ['invalidLocation', 'invalidFix', 'modelError']) {
+for (const option of ['invalidLocation', 'modelError']) {
   test(`${option} fails without publishing untrusted output`, async t => {
     const app = await scenario(t, { [option]: true });
     await assert.rejects(app.execute());
@@ -202,4 +202,14 @@ test('queued feedback can dismiss a known finding absent from the latest review'
   await app.command(`/review dismiss ${id} Caller rejects this input before this function`);
   assert.deepEqual((await app.execute()).findings, []);
   assert.equal(app.state.companion.state, 'closed');
+});
+
+test('an invalid optional patch cannot publish code or discard its valid finding', async t => {
+  const app = await scenario(t, { invalidFix: true });
+  const result = await app.execute();
+  assert.equal(result.status, 'reviewed');
+  assert.equal(result.findings[0].fix, undefined);
+  assert.equal(app.state.branch, null);
+  assert.equal(app.state.reviews.length, 1);
+  assert.equal((await app.outputs()).status, 'reviewed');
 });

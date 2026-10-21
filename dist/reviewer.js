@@ -365,18 +365,23 @@ async function validateReview(value, pathsInDiff, changed, getFile, contextLimit
         assert(typeof finding.body === "string" && finding.body.trim().length > 0 && finding.body.length <= 5000, `findings[${index}].body must explain the finding`);
         let fix;
         if (finding.fix !== undefined) {
-            strictKeys(finding.fix, ["oldText", "newText"], `findings[${index}].fix`);
-            assert(typeof finding.fix.oldText === "string" && finding.fix.oldText.length > 0 && finding.fix.oldText.length <= 16 * 1024, `findings[${index}].fix.oldText is invalid`);
-            assert(typeof finding.fix.newText === "string" && finding.fix.newText.length <= 16 * 1024 && finding.fix.newText !== finding.fix.oldText, `findings[${index}].fix.newText is invalid`);
-            const source = await getFile(finding.path);
-            const first = source.indexOf(finding.fix.oldText);
-            assert(first !== -1 && source.indexOf(finding.fix.oldText, first + 1) === -1, `findings[${index}].fix.oldText must occur exactly once in its file`);
-            const end = first + finding.fix.oldText.length;
-            const ranges = occupiedFixes.get(finding.path) ?? [];
-            assert(!ranges.some(([start, stop]) => start < end && first < stop), `findings[${index}].fix overlaps another fix`);
-            ranges.push([first, end]);
-            occupiedFixes.set(finding.path, ranges);
-            fix = { oldText: finding.fix.oldText, newText: finding.fix.newText };
+            try {
+                strictKeys(finding.fix, ["oldText", "newText"], `findings[${index}].fix`);
+                assert(typeof finding.fix.oldText === "string" && finding.fix.oldText.length > 0 && finding.fix.oldText.length <= 16 * 1024, `findings[${index}].fix.oldText is invalid`);
+                assert(typeof finding.fix.newText === "string" && finding.fix.newText.length <= 16 * 1024 && finding.fix.newText !== finding.fix.oldText, `findings[${index}].fix.newText is invalid`);
+                const source = await getFile(finding.path);
+                const first = source.indexOf(finding.fix.oldText);
+                assert(first !== -1 && source.indexOf(finding.fix.oldText, first + 1) === -1, `findings[${index}].fix.oldText must occur exactly once in its file`);
+                const end = first + finding.fix.oldText.length;
+                const ranges = occupiedFixes.get(finding.path) ?? [];
+                assert(!ranges.some(([start, stop]) => start < end && first < stop), `findings[${index}].fix overlaps another fix`);
+                ranges.push([first, end]);
+                occupiedFixes.set(finding.path, ranges);
+                fix = { oldText: finding.fix.oldText, newText: finding.fix.newText };
+            }
+            catch {
+                limitations.push(`No automatic fix for ${finding.path}: its optional patch could not be validated against the source or conflicts with another patch. The finding remains available for manual review.`);
+            }
         }
         findings.push({ path: finding.path, line: finding.line, side, severity: finding.severity, category: finding.category, title: finding.title, body: finding.body, ...(fix ? { fix } : {}) });
     }
