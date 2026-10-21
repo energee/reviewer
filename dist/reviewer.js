@@ -392,7 +392,13 @@ async function executeContextTool(name, input, context) {
     if (name === "read_file") {
         strictKeys(input, ["path"], "read_file input");
         assert(typeof input.path === "string", "read_file path is invalid");
-        return context.getFile(input.path);
+        try {
+            return await context.getFile(input.path);
+        }
+        catch {
+            context.contextLimitations.add('One or more requested context files were unavailable or exceeded the read budget.');
+            return JSON.stringify({ error: 'File unavailable, excluded, or outside the remaining context budget. Continue with other evidence.' });
+        }
     }
     if (name === "search") {
         const keys = Object.keys(input);
@@ -526,8 +532,8 @@ async function reviewClaudeCode(options) {
     let hasUsage = false;
     try {
         for (let turn = 0; turn < options.maxTurns; turn++) {
-            const prompt = `${SYSTEM_PROMPT}\nRemaining coordinator turns: ${options.maxTurns - turn}. On the last turn submit_review using available evidence and disclose gaps. Request exactly one tool as JSON {tool,input}; only submit_review finishes the review. Available tool contracts:\n${JSON.stringify(options.tools)}\n<pr-material>\n${JSON.stringify(options.initialContext)}\n</pr-material>\n<tool-history>\n${JSON.stringify(history)}\n</tool-history>`;
-            const output = await runClaudeCode(prompt, schema, options.model, options.maxTurns, cwd);
+            const prompt = `Remaining coordinator turns: ${options.maxTurns - turn}. On the last turn submit_review using available evidence and disclose gaps. Request exactly one tool as JSON {tool,input}; only submit_review finishes the review. Available tool contracts:\n${JSON.stringify(options.tools)}\n<pr-material>\n${JSON.stringify(options.initialContext)}\n</pr-material>\n<tool-history>\n${JSON.stringify(history)}\n</tool-history>`;
+            const output = await runClaudeCode(prompt, schema, options.model, cwd);
             let payload;
             try {
                 payload = JSON.parse(output);
@@ -560,9 +566,9 @@ async function reviewClaudeCode(options) {
         await rm(cwd, { recursive: true, force: true });
     }
 }
-async function runClaudeCode(prompt, schema, model, maxTurns, cwd) {
+async function runClaudeCode(prompt, schema, model, cwd) {
     return new Promise((resolve, reject) => {
-        const args = ["--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--no-session-persistence", "--permission-prompts", "none", "--tools", "", "-p", "--output-format", "json", "--json-schema", schema, "--model", model, "--max-turns", String(maxTurns)];
+        const args = ["--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--no-session-persistence", "--permission-prompts", "none", "--tools", "", "-p", "--output-format", "json", "--json-schema", schema, "--system-prompt", SYSTEM_PROMPT, "--effort", "medium", "--model", model, "--max-turns", "3"];
         const env = { ...process.env };
         for (const name of Object.keys(env)) {
             if (/^(INPUT_|ACTIONS_|GH_|GITHUB_)/.test(name) || name === 'OPENAI_API_KEY' || name === 'ANTHROPIC_API_KEY')
@@ -585,7 +591,7 @@ async function runClaudeCode(prompt, schema, model, maxTurns, cwd) {
         const timer = setTimeout(() => {
             child.kill("SIGKILL");
             finish(new Error("Claude Code CLI timed out"));
-        }, 90_000);
+        }, 120_000);
         const receive = (chunk, include) => {
             bytes += chunk.byteLength;
             if (bytes > MAX_RESPONSE_BYTES) {
@@ -602,6 +608,10 @@ async function runClaudeCode(prompt, schema, model, maxTurns, cwd) {
             finish(code === "ENOENT" ? new Error("Claude Code CLI is not installed or not on PATH. Install it using Anthropic's documented Claude Code installation workflow.") : new Error(`Claude Code CLI failed to start: ${error.message}`));
         });
         child.on("close", (code) => finish(code === 0 ? undefined : new Error("Claude Code CLI failed; verify its local authentication and supported model.")));
+        child.stdin.on('error', () => {
+            child.kill('SIGKILL');
+            finish(new Error('Claude Code CLI closed its input; verify client authentication and model access.'));
+        });
         child.stdin.end(prompt);
     });
 }
