@@ -596,9 +596,9 @@ async function runClaudeCode(prompt, schema, model, systemPrompt, cwd) {
             if (/^(INPUT_|ACTIONS_|GH_|GITHUB_)/.test(name) || name === 'OPENAI_API_KEY' || name === 'ANTHROPIC_API_KEY')
                 delete env[name];
         }
-        // Adaptive thinking can consume a short output budget indefinitely inside CLI retries.
+        // Reserve the bounded response for structured output, not CLI-internal thinking retries.
         env.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING = '1';
-        env.MAX_THINKING_TOKENS = '1024';
+        env.MAX_THINKING_TOKENS = '0';
         env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '4096';
         const child = spawn("claude", args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
         let stdout = "";

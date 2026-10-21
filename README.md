@@ -101,7 +101,7 @@ The CLI runs in a fresh temporary directory with built-in tools, custom hooks/pl
 
 [Official Claude Action authentication](https://github.com/anthropics/claude-code-action/blob/main/docs/setup.md). Subscription limits and Anthropic's terms apply.
 
-Native-client latency varies; large reviews can take several minutes or hit their deadline. A timeout is reported as an incomplete review, never an approval. The pinned CLI version and default model are the verified configuration; test version/model changes before using them on important repositories.
+Native reviews disable extended thinking to prioritize bounded structured responses; the coordinator can still investigate with read/search tools. [Documented CLI controls](https://code.claude.com/docs/en/env-vars). Latency varies; large reviews can still take several minutes or hit their deadline. A timeout is reported as an incomplete review, never an approval. The pinned CLI version and default model are the verified configuration; test version/model changes before using them on important repositories.
 
 **Codex / ChatGPT subscriptions:** not supported for this public-repository workflow. OpenAI's [account-auth CI guidance](https://developers.openai.com/codex/auth/ci-cd-auth) is for trusted private automation with persisted, serialized credentials. Use the OpenAI API input here instead.
 
