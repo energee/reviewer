@@ -129,11 +129,13 @@ test('unavailable patches clear stale findings and close obsolete fix proposals'
 test('filtered-out fixes close obsolete proposals and allow later proposals', async t => {
   const app = await scenario(t, {});
   await app.execute();
-  app.options.nonRegular = true;
+  app.options.policy = true;
+  await app.push();
   await app.execute();
   assert.equal(app.state.companion.state, 'closed');
   assert.equal(app.state.branch, app.fixedSha);
-  app.options.nonRegular = false;
+  app.options.policy = false;
+  await app.push();
   await app.execute();
   assert.equal(app.state.companion.state, 'open');
 });

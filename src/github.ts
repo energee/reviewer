@@ -26,6 +26,7 @@ export class GitHub {
   readonly repository: string;
   readonly fetchImpl: typeof fetch;
   readonly apiUrl: string;
+  readonly #trees = new Map<string, Promise<GitTree>>();
 
   constructor({ token, repository, fetchImpl = fetch, apiUrl = DEFAULT_API_URL }: GitHubOptions) {
     if (!token || typeof token !== 'string') throw new TypeError('GitHub token is required');
@@ -57,6 +58,7 @@ export class GitHub {
     }
   }
 
+  // A permission-service failure must remain visible, not masquerade as an authorization denial.
   async canWrite(login: string): Promise<boolean> {
     const value = await this.request('GET', `/repos/${this.repository}/collaborators/${encodeURIComponent(login)}/permission`);
     if (!value || typeof value !== 'object' || !('permission' in value) || typeof value.permission !== 'string') {
@@ -69,10 +71,13 @@ export class GitHub {
     return this.#paginate(`/repos/${this.repository}/pulls/${positiveInteger(number, 'pull number')}/files?per_page=100`, parsePullFile);
   }
 
-  async getTree(sha: string): Promise<GitTree> {
-    return parseGitTree(await this.request(
-      'GET', `/repos/${this.repository}/git/trees/${encodeURIComponent(requiredString(sha, 'sha'))}?recursive=1`,
-    ));
+  getTree(sha: string): Promise<GitTree> {
+    const existing = this.#trees.get(sha);
+    if (existing) return existing;
+    const pending = this.request('GET',
+      `/repos/${this.repository}/git/trees/${encodeURIComponent(requiredString(sha, 'sha'))}?recursive=1`).then(parseGitTree);
+    this.#trees.set(sha, pending);
+    return pending;
   }
 
   async listFiles(sha: string): Promise<string[]> {
@@ -83,6 +88,12 @@ export class GitHub {
 
   async readFile(path: string, sha: string): Promise<string> {
     const safePath = encodePath(path);
+    // The Contents API dereferences symlinks and may report the excluded target as type=file.
+    const tree = await this.getTree(sha);
+    const entry = tree.tree.find(file => file.path === path);
+    if (tree.truncated || !entry || entry.type !== 'blob' || !['100644', '100755'].includes(entry.mode)) {
+      throw new Error(`Refusing to read ${path}: not a verified regular file in the immutable Git tree`);
+    }
     const data = await this.request(
       'GET', `/repos/${this.repository}/contents/${safePath}?ref=${encodeURIComponent(requiredString(sha, 'sha'))}`,
     );

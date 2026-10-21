@@ -24,14 +24,15 @@ export async function fixture(options = {}) {
     const url = new URL(String(input));
     const method = init.method || 'GET';
     const data = init.body ? JSON.parse(init.body) : undefined;
+    const filePath = options.policy ? '.github/tools/first.js' : 'src/first.js';
     if (url.hostname === 'api.anthropic.com') {
       state.modelCalls++;
       if (options.modelError) return response({ error: { message: 'Unavailable' } }, 503);
-      if (state.modelCalls % 2 === 1) return response({ content: [{ type: 'tool_use', id: 'read', name: 'read_file', input: { path: 'src/first.js' } }] });
+      if (state.modelCalls % 2 === 1) return response({ content: [{ type: 'tool_use', id: 'read', name: 'read_file', input: { path: filePath } }] });
       if (options.stale) pull.head.sha = 'c'.repeat(40);
       if (options.retarget) pull.base.ref = 'release';
       if (options.baseAdvance) pull.base.sha = 'd'.repeat(40);
-      const findings = options.noFindings ? [] : [{ ...finding, ...(options.invalidLocation ? { line: 99 } : {}), ...(options.invalidFix ? { fix: { oldText: 'not found', newText: 'bad' } } : {}) }];
+      const findings = options.noFindings ? [] : [{ ...finding, path: filePath, ...(options.invalidLocation ? { line: 99 } : {}), ...(options.invalidFix ? { fix: { oldText: 'not found', newText: 'bad' } } : {}) }];
       if (options.deleted && findings.length) { findings[0].side = 'LEFT'; delete findings[0].fix; }
       return response({ content: [{ type: 'tool_use', id: 'final', name: 'submit_review', input: { summary: 'The empty-list case needs handling.', limitations: [], findings } }] });
     }
@@ -45,13 +46,13 @@ export async function fixture(options = {}) {
     }
     if (path === '/issues/comments/1' && method === 'PATCH' && options.summaryDenied && state.reviews.length) return response({ message: 'Temporarily denied' }, 403);
     if (path === '/pulls/7' && method === 'GET') { state.pullReads++; return response(pull); }
-    if (path === '/pulls/7/files') return response([{ filename: 'src/first.js', status: options.deleted ? 'removed' : 'added',
+    if (path === '/pulls/7/files') return response([{ filename: filePath, status: options.deleted ? 'removed' : 'added',
       patch: options.noPatch ? undefined : options.deleted ? '@@ -1,3 +0,0 @@\n-export function first(items) {\n-  return items[0].name;\n-}' : '@@ -0,0 +1,3 @@\n+export function first(items) {\n+  return items[0].name;\n+}' },
       ...(options.largeSummary ? Array.from({ length: 90 }, (_, index) => ({
         filename: `${('界'.repeat(80) + '/').repeat(3)}image-${index}.png`, status: 'modified',
       })) : [])]);
     if (path.startsWith('/git/trees/') && method === 'GET') return response({ sha: 'tree', truncated: false,
-      tree: [{ path: 'src/first.js', mode: options.nonRegular ? '120000' : '100644', type: 'blob', sha: 'blob' }] });
+      tree: [{ path: filePath, mode: '100644', type: 'blob', sha: 'blob' }] });
     if (path.startsWith('/contents/')) return response({ type: 'file', encoding: 'base64', size: Buffer.byteLength(source), content: Buffer.from(source).toString('base64') });
     if (path === '/issues/7/comments' && method === 'GET') return response(state.comments);
     if (path === '/issues/7/comments' && method === 'POST') {
@@ -86,6 +87,11 @@ export async function fixture(options = {}) {
     'INPUT_PROPOSE-FIXES': options.fixes === false ? 'false' : 'true' };
   return { state, options, pull, source, finding, env, fixedSha,
     outputs: async () => Object.fromEntries((await readFile(outputPath, 'utf8')).trim().split(/\n/).map(line => line.split('='))),
+    push: async () => {
+      pull.head.sha = (BigInt('0x' + pull.head.sha) + 1n).toString(16).padStart(40, '0');
+      env.GITHUB_EVENT_NAME = 'pull_request';
+      await writeFile(eventPath, JSON.stringify({ action: 'synchronize', pull_request: pull }));
+    },
     command: async (text, login = 'maintainer') => {
       env.GITHUB_EVENT_NAME = 'issue_comment';
       await writeFile(eventPath, JSON.stringify({ action: 'created', issue: { number: 7, pull_request: {} },

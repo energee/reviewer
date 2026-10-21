@@ -132,6 +132,7 @@ Sensitive paths such as `.env`, `.env.*`, private-key files, `credentials.json`,
 
 - Code and PR metadata are sent to your selected model provider. Review its data terms before enabling.
 - Drafts, fork PRs, and generated companion PRs are skipped. Do not switch to `pull_request_target`.
+- Symlinks and submodules cannot be read as context. Immutable Git tree modes are checked before the Contents API, which otherwise follows symlinks into excluded targets.
 - No PR code or tests run. Patches must match uniquely and not overlap; this does **not** establish behavioral correctness.
 - GitHub's default `GITHUB_TOKEN` does **not** trigger normal CI on generated fix PRs. Run a manually dispatchable validation workflow, or use an appropriately scoped GitHub App token to trigger your existing CI. Never merge without checking the diff and tests.
 - Manually edited fix branches are left untouched. Action-obsoleted proposals close without deleting branches. Manually closed/merged proposals are not reopened.
