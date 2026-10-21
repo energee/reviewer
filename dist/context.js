@@ -1,21 +1,11 @@
 import { matchesGlob } from 'node:path';
+import { safePath } from "./reviewer.js";
 const MAX_LISTED_FILES = 5_000;
 const MAX_INSTRUCTION_FILES = 32;
 const MAX_INSTRUCTION_BYTES = 64 * 1024;
 const INSTRUCTION_NAMES = ["AGENTS.md", "CLAUDE.md"];
 function byteLength(value) {
     return Buffer.byteLength(value);
-}
-function safePath(path) {
-    return path.length > 0
-        && path.length <= 1024
-        && !path.includes("\0")
-        && !path.includes("\\")
-        && !path.startsWith("/")
-        && !path.split("/").some((part) => part === "" || part === "." || part === "..");
-}
-function globMatches(pattern, path) {
-    return matchesGlob(path, pattern);
 }
 function customPatterns(excludePaths) {
     const patterns = excludePaths.flatMap(value => value.split(/\r?\n/)).map(value => value.trim()).filter(Boolean);
@@ -32,12 +22,12 @@ function isSensitivePath(path) {
         return true;
     if (name.startsWith(".env.") && name !== ".env.example" && name !== ".env.sample")
         return true;
-    return globMatches("*.pem", name)
-        || globMatches("*.key", name)
-        || globMatches("*.p12", name)
-        || globMatches("*.pfx", name)
+    return matchesGlob(name, "*.pem")
+        || matchesGlob(name, "*.key")
+        || matchesGlob(name, "*.p12")
+        || matchesGlob(name, "*.pfx")
         || name === "credentials.json"
-        || globMatches("service-account*.json", name);
+        || matchesGlob(name, "service-account*.json");
 }
 function parentPaths(path) {
     const parts = path.split("/");
@@ -57,7 +47,7 @@ function clampText(value, maxBytes) {
 export async function createContext({ files, listFiles, readFile, excludePaths }) {
     const limitations = [];
     const patterns = customPatterns(excludePaths);
-    const isExcluded = (path) => isSensitivePath(path) || patterns.some((pattern) => globMatches(pattern, path));
+    const isExcluded = (path) => isSensitivePath(path) || patterns.some((pattern) => matchesGlob(path, pattern));
     const changed = new Set();
     let excludedChanged = 0;
     for (const file of files) {

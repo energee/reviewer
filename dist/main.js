@@ -1,14 +1,11 @@
 import { readFile, appendFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { GitHub, parsePullRequest } from './github.js';
-import { review } from './reviewer.js';
+import { isObject as record, review } from './reviewer.js';
 import { createContext } from './context.js';
 import { proposeFixes, FIX_MARKER } from './fixes.js';
 import { SUMMARY_MARKER, decodeState, encodeState, findingId, safeText } from './state.js';
 class StaleReview extends Error {
-}
-function record(value) {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 export async function run({ env = process.env, fetchImpl = fetch, log = console.log } = {}) {
     const output = async (name, value) => {
