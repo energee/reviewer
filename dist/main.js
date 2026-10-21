@@ -114,7 +114,7 @@ export async function run({ env = process.env, fetchImpl = fetch, log = console.
         const apiKey = provider === 'openai' ? env['INPUT_OPENAI-API-KEY'] : env['INPUT_ANTHROPIC-API-KEY'];
         if (provider !== 'claude-code' && !apiKey)
             throw new Error(`Set ${provider === 'openai' ? 'openai-api-key' : 'anthropic-api-key'}, or select provider: claude-code with official client authentication.`);
-        const model = env.INPUT_MODEL || (provider === 'openai' ? 'gpt-5.4' : 'claude-sonnet-4-6');
+        const model = env.INPUT_MODEL || (provider === 'openai' ? 'gpt-6.1-sol' : 'claude-opus-5-5');
         const maxTurns = Number(env['INPUT_MAX-TURNS'] || 10);
         if (!Number.isInteger(maxTurns) || maxTurns < 1 || maxTurns > 20)
             throw new Error('max-turns must be an integer from 1 to 20');

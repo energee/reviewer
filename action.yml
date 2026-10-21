@@ -14,7 +14,7 @@ inputs:
   bot-login:
     description: Publishing login for installation tokens whose identity cannot be read (defaults to github-actions[bot]; PAT identity is detected).
   model:
-    description: Model ID (defaults to claude-sonnet-4-6 or gpt-5.4 for OpenAI).
+    description: Model ID (defaults to claude-opus-5-5 or gpt-6.1-sol for OpenAI).
   propose-fixes:
     description: Propose automatic fixes in a separate draft PR; never merge or edit the author's branch.
     default: 'true'

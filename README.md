@@ -38,7 +38,7 @@ jobs:
       cancel-in-progress: false
     steps:
       # No checkout: untrusted PR code is read through GitHub's API, never executed.
-      - uses: energee/reviewer@v1.0.0
+      - uses: energee/reviewer@v1.1.0
         with:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
@@ -81,7 +81,7 @@ with:
   openai-api-key: ${{ secrets.OPENAI_API_KEY }}
 ```
 
-Default model: `gpt-5.4`. OpenAI API usage is separately billed from ChatGPT subscriptions.
+Default model: [`gpt-6.1-sol`](https://developers.openai.com/api/docs/models/gpt-6.1-sol). OpenAI API usage is separately billed from ChatGPT subscriptions.
 
 ### Claude subscription / official Claude Code
 
@@ -90,7 +90,7 @@ Use the unmodified official CLI, **not** subscription tokens sent to our API cli
 ```yaml
 steps:
   - run: npm install --global @anthropic-ai/claude-code@2.1.306
-  - uses: energee/reviewer@v1.0.0
+  - uses: energee/reviewer@v1.1.0
     env:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
     with:
@@ -101,7 +101,7 @@ The CLI runs in a fresh temporary directory with built-in tools, custom hooks/pl
 
 [Official Claude Action authentication](https://github.com/anthropics/claude-code-action/blob/main/docs/setup.md). Subscription limits and Anthropic's terms apply.
 
-Native reviews disable extended thinking to prioritize bounded structured responses; the coordinator can still investigate with read/search tools. [Documented CLI controls](https://code.claude.com/docs/en/env-vars). Latency varies; large reviews can still take several minutes or hit their deadline. A timeout is reported as an incomplete review, never an approval. The pinned CLI version and default model are the verified configuration; test version/model changes before using them on important repositories.
+Default Claude model: [`claude-opus-5-5`](https://platform.claude.com/docs/en/models/opus-5-5/overview). Opus 5.5 always uses adaptive reasoning; native reviews use medium effort, with room for both reasoning and structured output. Requests have a three-minute deadline and a 16,384-token output cap. Large reviews can still hit their deadline; failures are never approvals. Test CLI/model changes before using them on important repositories.
 
 **Codex / ChatGPT subscriptions:** not supported for this public-repository workflow. OpenAI's [account-auth CI guidance](https://developers.openai.com/codex/auth/ci-cd-auth) is for trusted private automation with persisted, serialized credentials. Use the OpenAI API input here instead.
 
@@ -112,7 +112,7 @@ Native reviews disable extended thinking to prioritize bounded structured respon
 | `provider` | `anthropic` | `anthropic`, `openai`, or `claude-code`. |
 | `anthropic-api-key` | — | Required for the Anthropic API engine. |
 | `openai-api-key` | — | Required for the OpenAI API engine. |
-| `model` | Provider default | `claude-sonnet-4-6` or `gpt-5.4`. |
+| `model` | Provider default | `claude-opus-5-5` for Anthropic/Claude Code; `gpt-6.1-sol` for OpenAI. Explicit overrides remain supported. |
 | `propose-fixes` | `true` | Create/update a separate draft fix PR. |
 | `exclude-paths` | — | Newline-separated repository-relative globs; excluded from the diff and all context tools. |
 | `max-turns` | `10` | Investigation limit, 1–20. |
