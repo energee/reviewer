@@ -448,16 +448,20 @@ type ProviderContext = {
   contextAvailable: () => boolean;
 };
 
+function rejectContextInput(context: ProviderContext): string {
+  context.contextLimitations.add('An invalid context-tool request was rejected; review continued within its turn limit.');
+  return JSON.stringify({ error: 'Invalid tool request. Use a supported context tool with exactly its documented parameter keys and types.' });
+}
+
 async function executeContextTool(name: string, input: unknown, context: ProviderContext): Promise<string | ReviewResult> {
-  assert(isObject(input), `${name} input is invalid`);
   if (name === "submit_review") return validateReview(input, context.pathsInDiff, context.changed, context.getFile, context.contextLimitations, context.allowFixes);
+  if (!isObject(input)) return rejectContextInput(context);
   if (name === "list_files") {
-    strictKeys(input, [], "list_files input");
+    if (Object.keys(input).length) return rejectContextInput(context);
     return JSON.stringify([...await context.getListedPaths()]);
   }
   if (name === "read_file") {
-    strictKeys(input, ["path"], "read_file input");
-    assert(typeof input.path === "string", "read_file path is invalid");
+    if (Object.keys(input).length !== 1 || !Object.hasOwn(input, 'path') || typeof input.path !== 'string') return rejectContextInput(context);
     try { return await context.getFile(input.path); }
     catch {
       // Internal backend errors can contain credentials; never disclose them to the model.
@@ -467,7 +471,9 @@ async function executeContextTool(name: string, input: unknown, context: Provide
   }
   if (name === "search") {
     const keys = Object.keys(input);
-    assert(keys.every((key) => key === "query" || key === "pathPrefix") && typeof input.query === "string" && input.query.length > 0 && input.query.length <= 256 && (input.pathPrefix === undefined || (typeof input.pathPrefix === "string" && input.pathPrefix.length <= 1024)), "search input is invalid");
+    if (!keys.every(key => key === 'query' || key === 'pathPrefix') || typeof input.query !== 'string' ||
+      !input.query.length || input.query.length > 256 || (input.pathPrefix !== undefined &&
+      (typeof input.pathPrefix !== 'string' || input.pathPrefix.length > 1024))) return rejectContextInput(context);
     const matches: Array<{ path: string; line: number; text: string }> = [];
     let truncated = false;
     for (const path of await context.getListedPaths()) {
@@ -496,7 +502,7 @@ async function executeContextTool(name: string, input: unknown, context: Provide
     }
     return JSON.stringify({ matches, truncated });
   }
-  throw new Error(`Unknown tool: ${name}`);
+  return rejectContextInput(context);
 }
 
 async function reviewOpenAI(options: ProviderContext & { apiKey: string; fetchImpl: typeof fetch }): Promise<ReviewResult> {

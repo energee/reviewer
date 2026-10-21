@@ -97,9 +97,11 @@ steps:
       provider: claude-code
 ```
 
-The CLI runs in a fresh temporary directory with built-in tools, hooks, plugins, and project discovery disabled. The coordinator allows only bounded repository read/search operations and validated review output. It cannot execute PR commands or publish to GitHub itself. An already signed-in local CLI can also be used for local verification; do not export or copy its credential cache.
+The CLI runs in a fresh temporary directory with built-in tools, custom hooks/plugins, and project discovery disabled. Organization-managed policies can still apply. The coordinator allows only bounded repository read/search operations and validated review output. It cannot execute PR commands or publish to GitHub itself. An already signed-in local CLI can also be used for local verification; do not export or copy its credential cache.
 
 [Official Claude Action authentication](https://github.com/anthropics/claude-code-action/blob/main/docs/setup.md). Subscription limits and Anthropic's terms apply.
+
+Native-client latency varies; large reviews can take several minutes or hit their deadline. A timeout is reported as an incomplete review, never an approval. The pinned CLI version and default model are the verified configuration; test version/model changes before using them on important repositories.
 
 **Codex / ChatGPT subscriptions:** not supported for this public-repository workflow. OpenAI's [account-auth CI guidance](https://developers.openai.com/codex/auth/ci-cd-auth) is for trusted private automation with persisted, serialized credentials. Use the OpenAI API input here instead.
 

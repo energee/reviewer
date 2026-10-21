@@ -60,3 +60,23 @@ test('unavailable context does not leak backend error details into model request
   });
   assert.equal(sent.some(body => body.includes(privateDetail)), false);
 });
+
+test('invalid context parameters cannot execute a read and can be corrected within the turn budget', async () => {
+  let requests = 0;
+  let reads = 0;
+  await review({
+    ...base, provider: 'openai', apiKey: 'key', maxTurns: 3,
+    readFile: async () => { reads++; return 'new\n'; },
+    fetchImpl: async () => {
+      requests++;
+      const call = requests === 3
+        ? { name: 'submit_review', input: submitted }
+        : { name: 'read_file', input: requests === 1 ? { path: 'src/a.ts', unexpected: true } : { path: 'src/a.ts' } };
+      return response({ id: `r${requests}`, output: [{
+        type: 'function_call', name: call.name, call_id: `c${requests}`, arguments: JSON.stringify(call.input),
+      }] });
+    },
+  });
+  assert.equal(reads, 1);
+  assert.equal(requests, 3);
+});
