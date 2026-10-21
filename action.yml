@@ -1,0 +1,36 @@
+name: Agentic PR Review
+description: Autonomous code review, useful suggestions, and draft fixes in your GitHub PR.
+inputs:
+  provider:
+    description: Review engine (anthropic, openai, or claude-code).
+    default: anthropic
+  anthropic-api-key:
+    description: Anthropic API key (for provider anthropic).
+  openai-api-key:
+    description: OpenAI API key (for provider openai; separate from ChatGPT subscription).
+  github-token:
+    description: GitHub token used to read the PR and publish reviews and fixes.
+    default: ${{ github.token }}
+  bot-login:
+    description: Publishing login for installation tokens whose identity cannot be read (defaults to github-actions[bot]; PAT identity is detected).
+  model:
+    description: Model ID (defaults to claude-sonnet-4-6 or gpt-5.4 for OpenAI).
+  propose-fixes:
+    description: Propose automatic fixes in a separate draft PR; never merge or edit the author's branch.
+    default: 'true'
+  exclude-paths:
+    description: Newline-separated repository-relative globs excluded from every model diff and context tool. Sensitive paths are always excluded.
+  max-turns:
+    description: Maximum bounded model/tool turns per review (1–20).
+    default: '10'
+runs:
+  using: node24
+  main: dist/main.js
+outputs:
+  status:
+    description: reviewed, incomplete, failed, stale, or skipped.
+  fix-pr-url:
+    description: URL of the companion draft PR, when created.
+branding:
+  icon: git-pull-request
+  color: purple

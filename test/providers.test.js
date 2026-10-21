@@ -1,0 +1,46 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { review } from '../dist/reviewer.js';
+
+const files = [{ path: 'src/a.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }];
+const base = { model: 'test-model', diff: 'diff', files, readFile: async () => 'new\n', listFiles: async () => ['src/a.ts'] };
+const submitted = { summary: 'Reviewed.', limitations: [], findings: [] };
+
+function response(payload, status = 200) {
+  return new Response(JSON.stringify(payload), { status, headers: { 'content-type': 'application/json' } });
+}
+
+test('OpenAI Responses tool loop submits validated review and totals usage', async () => {
+  const requests = [];
+  const result = await review({
+    ...base,
+    provider: 'openai',
+    apiKey: 'key',
+    fetchImpl: async (_url, init) => {
+      requests.push(JSON.parse(init.body));
+      return response(requests.length === 1
+        ? { id: 'r1', usage: { input_tokens: 3, output_tokens: 5 }, output: [{ type: 'function_call', name: 'read_file', call_id: 'c1', arguments: JSON.stringify({ path: 'src/a.ts' }) }] }
+        : { id: 'r2', usage: { input_tokens: 7, output_tokens: 11 }, output: [{ type: 'function_call', name: 'submit_review', call_id: 'c2', arguments: JSON.stringify(submitted) }] });
+    },
+  });
+  assert.deepEqual(result.usage, { inputTokens: 10, outputTokens: 16 });
+});
+
+test('OpenAI rejects malformed function arguments without accepting prose', async () => {
+  await assert.rejects(review({
+    ...base,
+    provider: 'openai',
+    apiKey: 'key',
+    fetchImpl: async () => response({ id: 'r1', output: [{ type: 'function_call', name: 'submit_review', call_id: 'c1', arguments: '{' }] }),
+  }), /invalid JSON arguments/);
+});
+
+test('OpenAI surfaces actionable API failures', async () => {
+  await assert.rejects(review({
+    ...base,
+    provider: 'openai',
+    apiKey: 'key',
+    fetchImpl: async () => response({ error: 'nope' }, 429),
+  }), /OpenAI Responses API request failed \(429/);
+});
+
