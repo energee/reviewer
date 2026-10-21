@@ -190,3 +190,16 @@ test('fix permission failure retains findings and authenticated checkpoint for s
   assert.equal(app.state.reviews.length, 1);
   assert.equal(app.state.comments.length, 1);
 });
+
+test('queued feedback can dismiss a known finding absent from the latest review', async t => {
+  const app = await scenario(t, {});
+  const first = await app.execute();
+  const { findingId } = await import('../dist/state.js');
+  const id = findingId(first.findings[0]).slice(0, 12);
+  app.options.noFindings = true;
+  await app.execute();
+  app.options.noFindings = false;
+  await app.command(`/review dismiss ${id} Caller rejects this input before this function`);
+  assert.deepEqual((await app.execute()).findings, []);
+  assert.equal(app.state.companion.state, 'closed');
+});

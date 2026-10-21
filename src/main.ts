@@ -120,7 +120,13 @@ export async function run({ env = process.env, fetchImpl = fetch, log = console.
       };
     const unique = new Map<string, Finding>();
     for (const finding of result.findings) unique.set(findingId(finding), finding);
-    state.findings = Object.fromEntries([...unique].map(([id, finding]) => [id, { title: finding.title, path: finding.path }]));
+    // A queued maintainer command can refer to a finding resolved by an earlier queued review.
+    const known = new Map(Object.entries(state.findings));
+    for (const [id, finding] of unique) {
+      known.delete(id);
+      known.set(id, { title: finding.title, path: finding.path });
+    }
+    state.findings = Object.fromEntries([...known].slice(-20));
     const findings = [...unique].filter(([id]) => !state.dismissed[id]).map(([, finding]) => finding);
     const oldKeys = new Set(Array.from(originalBody.matchAll(/<!-- finding:([a-f0-9]{64}) -->/g), match => match[1]));
     for (const comment of await github.listReviewComments(pull.number)) {
