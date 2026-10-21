@@ -34,7 +34,8 @@ jobs:
     timeout-minutes: 20
     concurrency:
       group: review-${{ github.event.pull_request.number || github.event.issue.number }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+      queue: max
+      cancel-in-progress: false
     steps:
       # No checkout: untrusted PR code is read through GitHub's API, never executed.
       - uses: energee/reviewer@v1.0.0
@@ -163,3 +164,5 @@ npm run review -- 5
 This posts a real review to PR #5 using your GitHub identity and existing Claude login. Replace `5` with your PR number. Add `--fixes` to propose a draft fix PR. Local runs exclude `dist/**` and `package-lock.json` by default; override with `INPUT_EXCLUDE-PATHS` if needed. No credentials are uploaded to GitHub secrets.
 
 Use one reviewer job per PR: keep the example's shared concurrency group for pushes and discussion commands. Do not run local reviews concurrently with CI or another local review of the same PR. Feedback and fix checkpoints are stored in the summary, not in a separate transactional database.
+
+The workflow queues up to 100 runs rather than replacing pending feedback commands. Superseded push reviews discard their results when the PR revision changes. Keep `queue: max` and cancellation disabled when customizing the workflow.

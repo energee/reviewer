@@ -6,6 +6,10 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    concurrency:
+      group: check-${{ github.ref }}
+      queue: max
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -20,4 +24,9 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run check
       - name: Ensure committed action output matches TypeScript
-        run: git diff --exit-code -- dist
+        run: |
+          git diff --exit-code -- dist
+          if [ -n "$(git ls-files --others -- dist)" ]; then
+            echo "::error::Generated dist files are missing from this commit."
+            exit 1
+          fi

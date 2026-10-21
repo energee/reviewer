@@ -544,9 +544,12 @@ async function reviewOpenAI(options: ProviderContext & { apiKey: string; fetchIm
 }
 async function reviewClaudeCode(options: ProviderContext): Promise<ReviewResult> {
   const schema = JSON.stringify({ type: "object", additionalProperties: false, properties: {
-    tool: { type: "string", enum: options.tools.map(tool => tool.name) },
-    input: { anyOf: options.tools.map(tool => tool.input_schema) },
-  }, required: ["tool", "input"] });
+    request: { anyOf: options.tools.map(tool => ({
+      type: 'object', additionalProperties: false,
+      properties: { tool: { type: 'string', const: tool.name }, input: tool.input_schema },
+      required: ['tool', 'input'],
+    })) },
+  }, required: ["request"] });
   const cwd = await mkdtemp(join(tmpdir(), "energee-reviewer-"));
   const history: Array<{ request: JsonObject; result: string }> = [];
   let inputTokens = 0;
@@ -554,7 +557,7 @@ async function reviewClaudeCode(options: ProviderContext): Promise<ReviewResult>
   let hasUsage = false;
   try {
     for (let turn = 0; turn < options.maxTurns; turn++) {
-      const prompt = `Remaining coordinator turns: ${options.maxTurns - turn}. On the last turn submit_review using available evidence and disclose gaps. Request exactly one tool as JSON {tool,input}; only submit_review finishes the review. Available tool contracts:\n${JSON.stringify(options.tools)}\n<pr-material>\n${JSON.stringify(options.initialContext)}\n</pr-material>\n<tool-history>\n${JSON.stringify(history)}\n</tool-history>`;
+      const prompt = `Remaining coordinator turns: ${options.maxTurns - turn}. On the last turn submit_review using available evidence and disclose gaps. Return one JSON request {request:{tool,input}}; only submit_review finishes the review. Available tool contracts:\n${JSON.stringify(options.tools)}\n<pr-material>\n${JSON.stringify(options.initialContext)}\n</pr-material>\n<tool-history>\n${JSON.stringify(history)}\n</tool-history>`;
       const output = await runClaudeCode(prompt, schema, options.model, cwd);
       let payload: unknown;
       try { payload = JSON.parse(output); } catch { throw new Error("Claude Code CLI returned invalid JSON"); }
@@ -564,8 +567,8 @@ async function reviewClaudeCode(options: ProviderContext): Promise<ReviewResult>
         if (input !== undefined) { inputTokens += input; hasUsage = true; }
         if (typeof payload.usage.output_tokens === "number") { outputTokens += payload.usage.output_tokens; hasUsage = true; }
       }
-      const request = payload.structured_output;
-      assert(typeof request.tool === "string" && "input" in request, "Claude Code CLI returned an invalid tool request");
+      const request = payload.structured_output.request;
+      assert(isObject(request) && typeof request.tool === "string" && "input" in request, "Claude Code CLI returned an invalid tool request");
       const result = await executeContextTool(request.tool, request.input, options);
       if (typeof result !== "string") return hasUsage ? { ...result, usage: { inputTokens, outputTokens } } : result;
       history.push({ request: { tool: request.tool, input: request.input }, result });
@@ -583,6 +586,7 @@ async function runClaudeCode(prompt: string, schema: string, model: string, cwd:
     for (const name of Object.keys(env)) {
       if (/^(INPUT_|ACTIONS_|GH_|GITHUB_)/.test(name) || name === 'OPENAI_API_KEY' || name === 'ANTHROPIC_API_KEY') delete env[name];
     }
+    env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '3500';
     const child = spawn("claude", args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let bytes = 0;
