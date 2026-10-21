@@ -123,7 +123,7 @@ async function readResponseText(response) {
         reader.releaseLock();
     }
 }
-export async function review({ provider = "anthropic", apiKey, model, diff, files, instructions = "", readFile, listFiles, maxTurns = 8, maxInputBytes = 280 * 1024, fetchImpl = globalThis.fetch, }) {
+export async function review({ provider = "anthropic", apiKey, model, diff, files, allowFixes = true, instructions = "", readFile, listFiles, maxTurns = 8, maxInputBytes = 280 * 1024, fetchImpl = globalThis.fetch, }) {
     assert(provider === "anthropic" || provider === "openai" || provider === "claude-code", "provider is invalid");
     const authenticatedApiKey = apiKey ?? "";
     if (provider !== "claude-code")
@@ -232,15 +232,15 @@ export async function review({ provider = "anthropic", apiKey, model, diff, file
             category: { type: "string", enum: ["bug", "security", "simplification"] },
             title: { type: "string", minLength: 1, maxLength: 240 },
             body: { type: "string", minLength: 1, maxLength: 5000 },
-            fix: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                    oldText: { type: "string", minLength: 1, maxLength: 16 * 1024 },
-                    newText: { type: "string", maxLength: 16 * 1024 },
-                },
-                required: ["oldText", "newText"],
-            },
+            ...(allowFixes ? { fix: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                        oldText: { type: "string", minLength: 1, maxLength: 16 * 1024 },
+                        newText: { type: "string", maxLength: 16 * 1024 },
+                    },
+                    required: ["oldText", "newText"],
+                } } : {}),
         },
         required: ["path", "line", "severity", "category", "title", "body"],
     };
@@ -251,7 +251,10 @@ export async function review({ provider = "anthropic", apiKey, model, diff, file
         { name: "submit_review", description: "Submit the final review exactly once. Fixes are optional exact replacements in the same file and bodies explain every finding.", input_schema: { type: "object", additionalProperties: false, properties: { summary: { type: "string", minLength: 1, maxLength: 6000 }, limitations: { type: "array", maxItems: 20, items: { type: "string", minLength: 1, maxLength: 1000 } }, findings: { type: "array", maxItems: MAX_FINDINGS, items: findingSchema } }, required: ["summary", "limitations", "findings"] } },
     ];
     const context = { model, initialContext, maxTurns, pathsInDiff, changed, getFile, getListedPaths,
-        contextLimitations, tools, contextAvailable: () => contextBytes < MAX_CONTEXT_BYTES };
+        contextLimitations, tools, allowFixes,
+        systemPrompt: SYSTEM_PROMPT + (allowFixes ? '\nKeep optional patches small and targeted.' :
+            '\nFix generation is disabled for this run. Do not include fix fields. Describe useful simplifications in the finding body without generating replacement payloads.'),
+        contextAvailable: () => contextBytes < MAX_CONTEXT_BYTES };
     if (provider === "openai")
         return reviewOpenAI({ ...context, apiKey: authenticatedApiKey, fetchImpl });
     if (provider === "claude-code")
@@ -269,7 +272,7 @@ export async function review({ provider = "anthropic", apiKey, model, diff, file
             response = await fetchImpl(ANTHROPIC_URL, {
                 method: "POST",
                 headers: { "content-type": "application/json", "x-api-key": authenticatedApiKey, "anthropic-version": "2023-06-01" },
-                body: JSON.stringify({ model, max_tokens: 3500, system: SYSTEM_PROMPT, tools, messages }),
+                body: JSON.stringify({ model, max_tokens: 3500, system: context.systemPrompt, tools, messages }),
                 signal: controller.signal,
             });
             const body = await readResponseText(response);
@@ -337,7 +340,7 @@ export async function review({ provider = "anthropic", apiKey, model, diff, file
     }
     throw new Error(`Review exhausted its ${maxTurns}-turn tool budget without submit_review`);
 }
-async function validateReview(value, pathsInDiff, changed, getFile, contextLimitations) {
+async function validateReview(value, pathsInDiff, changed, getFile, contextLimitations, allowFixes) {
     strictKeys(value, ["summary", "limitations", "findings"], "submit_review input");
     assert(typeof value.summary === "string" && value.summary.trim().length > 0 && value.summary.length <= 6000, "summary is invalid");
     assert(Array.isArray(value.limitations) && value.limitations.length <= 20 && value.limitations.every((item) => typeof item === "string" && item.trim().length > 0 && item.length <= 1000), "limitations are invalid");
@@ -364,7 +367,7 @@ async function validateReview(value, pathsInDiff, changed, getFile, contextLimit
         assert(typeof finding.title === "string" && finding.title.trim().length > 0 && finding.title.length <= 240, `findings[${index}].title is invalid`);
         assert(typeof finding.body === "string" && finding.body.trim().length > 0 && finding.body.length <= 5000, `findings[${index}].body must explain the finding`);
         let fix;
-        if (finding.fix !== undefined) {
+        if (finding.fix !== undefined && allowFixes) {
             try {
                 strictKeys(finding.fix, ["oldText", "newText"], `findings[${index}].fix`);
                 assert(typeof finding.fix.oldText === "string" && finding.fix.oldText.length > 0 && finding.fix.oldText.length <= 16 * 1024, `findings[${index}].fix.oldText is invalid`);
@@ -390,7 +393,7 @@ async function validateReview(value, pathsInDiff, changed, getFile, contextLimit
 async function executeContextTool(name, input, context) {
     assert(isObject(input), `${name} input is invalid`);
     if (name === "submit_review")
-        return validateReview(input, context.pathsInDiff, context.changed, context.getFile, context.contextLimitations);
+        return validateReview(input, context.pathsInDiff, context.changed, context.getFile, context.contextLimitations, context.allowFixes);
     if (name === "list_files") {
         strictKeys(input, [], "list_files input");
         return JSON.stringify([...await context.getListedPaths()]);
@@ -465,7 +468,7 @@ async function reviewOpenAI(options) {
             const response = await options.fetchImpl("https://api.openai.com/v1/responses", {
                 method: "POST",
                 headers: { "content-type": "application/json", authorization: `Bearer ${options.apiKey}` },
-                body: JSON.stringify({ model: options.model, max_output_tokens: 3500, instructions: SYSTEM_PROMPT, input, tools, ...(previousResponseId ? { previous_response_id: previousResponseId } : {}) }),
+                body: JSON.stringify({ model: options.model, max_output_tokens: 3500, instructions: options.systemPrompt, input, tools, ...(previousResponseId ? { previous_response_id: previousResponseId } : {}) }),
                 signal: controller.signal,
             });
             const text = await readResponseText(response);
@@ -543,7 +546,7 @@ async function reviewClaudeCode(options) {
     try {
         for (let turn = 0; turn < options.maxTurns; turn++) {
             const prompt = `Remaining coordinator turns: ${options.maxTurns - turn}. On the last turn submit_review using available evidence and disclose gaps. Return one JSON request {request:{tool,input}}; only submit_review finishes the review. Available tool contracts:\n${JSON.stringify(options.tools)}\n<pr-material>\n${JSON.stringify(options.initialContext)}\n</pr-material>\n<tool-history>\n${JSON.stringify(history)}\n</tool-history>`;
-            const output = await runClaudeCode(prompt, schema, options.model, cwd);
+            const output = await runClaudeCode(prompt, schema, options.model, options.systemPrompt, cwd);
             let payload;
             try {
                 payload = JSON.parse(output);
@@ -576,9 +579,9 @@ async function reviewClaudeCode(options) {
         await rm(cwd, { recursive: true, force: true });
     }
 }
-async function runClaudeCode(prompt, schema, model, cwd) {
+async function runClaudeCode(prompt, schema, model, systemPrompt, cwd) {
     return new Promise((resolve, reject) => {
-        const args = ["--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--no-session-persistence", "--permission-prompts", "none", "--tools", "", "-p", "--output-format", "json", "--json-schema", schema, "--system-prompt", SYSTEM_PROMPT, "--effort", "medium", "--model", model, "--max-turns", "3"];
+        const args = ["--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--no-session-persistence", "--permission-prompts", "none", "--tools", "", "-p", "--output-format", "json", "--json-schema", schema, "--system-prompt", systemPrompt, "--effort", "medium", "--model", model, "--max-turns", "3"];
         const env = { ...process.env };
         for (const name of Object.keys(env)) {
             if (/^(INPUT_|ACTIONS_|GH_|GITHUB_)/.test(name) || name === 'OPENAI_API_KEY' || name === 'ANTHROPIC_API_KEY')
@@ -605,7 +608,7 @@ async function runClaudeCode(prompt, schema, model, cwd) {
         const timer = setTimeout(() => {
             child.kill("SIGKILL");
             finish(new Error("Claude Code CLI timed out"));
-        }, 120_000);
+        }, 180_000);
         const receive = (chunk, include) => {
             bytes += chunk.byteLength;
             if (bytes > MAX_RESPONSE_BYTES) {

@@ -59,7 +59,8 @@ test('permission failure is visible rather than reported as a completed review',
 
 test('review-only mode does not create branches', async t => {
   const app = await scenario(t, { fixes: false });
-  await app.execute();
+  const result = await app.execute();
+  assert.equal(result.findings[0].fix, undefined);
   assert.equal(app.state.branch, null);
   assert.equal(app.state.reviews.length, 1);
 });

@@ -61,6 +61,7 @@ export interface ReviewOptions {
   model: string;
   diff: string;
   files: ReviewFile[];
+  allowFixes?: boolean;
   instructions?: string;
   readFile: (path: string) => Promise<string>;
   listFiles: () => Promise<string[]>;
@@ -181,6 +182,7 @@ export async function review({
   model,
   diff,
   files,
+  allowFixes = true,
   instructions = "",
   readFile,
   listFiles,
@@ -292,7 +294,7 @@ export async function review({
       category: { type: "string", enum: ["bug", "security", "simplification"] },
       title: { type: "string", minLength: 1, maxLength: 240 },
       body: { type: "string", minLength: 1, maxLength: 5000 },
-      fix: {
+      ...(allowFixes ? { fix: {
         type: "object",
         additionalProperties: false,
         properties: {
@@ -300,7 +302,7 @@ export async function review({
           newText: { type: "string", maxLength: 16 * 1024 },
         },
         required: ["oldText", "newText"],
-      },
+      } } : {}),
     },
     required: ["path", "line", "severity", "category", "title", "body"],
   };
@@ -311,7 +313,10 @@ export async function review({
     { name: "submit_review", description: "Submit the final review exactly once. Fixes are optional exact replacements in the same file and bodies explain every finding.", input_schema: { type: "object", additionalProperties: false, properties: { summary: { type: "string", minLength: 1, maxLength: 6000 }, limitations: { type: "array", maxItems: 20, items: { type: "string", minLength: 1, maxLength: 1000 } }, findings: { type: "array", maxItems: MAX_FINDINGS, items: findingSchema } }, required: ["summary", "limitations", "findings"] } },
   ];
   const context: ProviderContext = { model, initialContext, maxTurns, pathsInDiff, changed, getFile, getListedPaths,
-    contextLimitations, tools, contextAvailable: () => contextBytes < MAX_CONTEXT_BYTES };
+    contextLimitations, tools, allowFixes,
+    systemPrompt: SYSTEM_PROMPT + (allowFixes ? '\nKeep optional patches small and targeted.' :
+      '\nFix generation is disabled for this run. Do not include fix fields. Describe useful simplifications in the finding body without generating replacement payloads.'),
+    contextAvailable: () => contextBytes < MAX_CONTEXT_BYTES };
   if (provider === "openai") return reviewOpenAI({ ...context, apiKey: authenticatedApiKey, fetchImpl });
   if (provider === "claude-code") return reviewClaudeCode(context);
 
@@ -329,7 +334,7 @@ export async function review({
       response = await fetchImpl(ANTHROPIC_URL, {
         method: "POST",
         headers: { "content-type": "application/json", "x-api-key": authenticatedApiKey, "anthropic-version": "2023-06-01" },
-        body: JSON.stringify({ model, max_tokens: 3500, system: SYSTEM_PROMPT, tools, messages }),
+        body: JSON.stringify({ model, max_tokens: 3500, system: context.systemPrompt, tools, messages }),
         signal: controller.signal,
       });
       const body = await readResponseText(response);
@@ -380,7 +385,7 @@ export async function review({
   throw new Error(`Review exhausted its ${maxTurns}-turn tool budget without submit_review`);
 }
 
-async function validateReview(value: unknown, pathsInDiff: Set<string>, changed: Map<string, DiffLines>, getFile: (path: string) => Promise<string>, contextLimitations: Set<string>): Promise<ReviewResult> {
+async function validateReview(value: unknown, pathsInDiff: Set<string>, changed: Map<string, DiffLines>, getFile: (path: string) => Promise<string>, contextLimitations: Set<string>, allowFixes: boolean): Promise<ReviewResult> {
   strictKeys(value, ["summary", "limitations", "findings"], "submit_review input");
   assert(typeof value.summary === "string" && value.summary.trim().length > 0 && value.summary.length <= 6000, "summary is invalid");
   assert(Array.isArray(value.limitations) && value.limitations.length <= 20 && value.limitations.every((item) => typeof item === "string" && item.trim().length > 0 && item.length <= 1000), "limitations are invalid");
@@ -406,7 +411,7 @@ async function validateReview(value: unknown, pathsInDiff: Set<string>, changed:
     assert(typeof finding.title === "string" && finding.title.trim().length > 0 && finding.title.length <= 240, `findings[${index}].title is invalid`);
     assert(typeof finding.body === "string" && finding.body.trim().length > 0 && finding.body.length <= 5000, `findings[${index}].body must explain the finding`);
     let fix: Fix | undefined;
-    if (finding.fix !== undefined) {
+    if (finding.fix !== undefined && allowFixes) {
       try {
         strictKeys(finding.fix, ["oldText", "newText"], `findings[${index}].fix`);
         assert(typeof finding.fix.oldText === "string" && finding.fix.oldText.length > 0 && finding.fix.oldText.length <= 16 * 1024, `findings[${index}].fix.oldText is invalid`);
@@ -438,12 +443,14 @@ type ProviderContext = {
   getListedPaths: () => Promise<Set<string>>;
   contextLimitations: Set<string>;
   tools: Array<{ name: string; description: string; input_schema: JsonObject }>;
+  allowFixes: boolean;
+  systemPrompt: string;
   contextAvailable: () => boolean;
 };
 
 async function executeContextTool(name: string, input: unknown, context: ProviderContext): Promise<string | ReviewResult> {
   assert(isObject(input), `${name} input is invalid`);
-  if (name === "submit_review") return validateReview(input, context.pathsInDiff, context.changed, context.getFile, context.contextLimitations);
+  if (name === "submit_review") return validateReview(input, context.pathsInDiff, context.changed, context.getFile, context.contextLimitations, context.allowFixes);
   if (name === "list_files") {
     strictKeys(input, [], "list_files input");
     return JSON.stringify([...await context.getListedPaths()]);
@@ -508,7 +515,7 @@ async function reviewOpenAI(options: ProviderContext & { apiKey: string; fetchIm
       const response = await options.fetchImpl("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${options.apiKey}` },
-        body: JSON.stringify({ model: options.model, max_output_tokens: 3500, instructions: SYSTEM_PROMPT, input, tools, ...(previousResponseId ? { previous_response_id: previousResponseId } : {}) }),
+        body: JSON.stringify({ model: options.model, max_output_tokens: 3500, instructions: options.systemPrompt, input, tools, ...(previousResponseId ? { previous_response_id: previousResponseId } : {}) }),
         signal: controller.signal,
       });
       const text = await readResponseText(response);
@@ -564,7 +571,7 @@ async function reviewClaudeCode(options: ProviderContext): Promise<ReviewResult>
   try {
     for (let turn = 0; turn < options.maxTurns; turn++) {
       const prompt = `Remaining coordinator turns: ${options.maxTurns - turn}. On the last turn submit_review using available evidence and disclose gaps. Return one JSON request {request:{tool,input}}; only submit_review finishes the review. Available tool contracts:\n${JSON.stringify(options.tools)}\n<pr-material>\n${JSON.stringify(options.initialContext)}\n</pr-material>\n<tool-history>\n${JSON.stringify(history)}\n</tool-history>`;
-      const output = await runClaudeCode(prompt, schema, options.model, cwd);
+      const output = await runClaudeCode(prompt, schema, options.model, options.systemPrompt, cwd);
       let payload: unknown;
       try { payload = JSON.parse(output); } catch { throw new Error("Claude Code CLI returned invalid JSON"); }
       assert(isObject(payload) && isObject(payload.structured_output), "Claude Code CLI returned no structured tool request");
@@ -585,9 +592,9 @@ async function reviewClaudeCode(options: ProviderContext): Promise<ReviewResult>
   }
 }
 
-async function runClaudeCode(prompt: string, schema: string, model: string, cwd: string): Promise<string> {
+async function runClaudeCode(prompt: string, schema: string, model: string, systemPrompt: string, cwd: string): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    const args = ["--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--no-session-persistence", "--permission-prompts", "none", "--tools", "", "-p", "--output-format", "json", "--json-schema", schema, "--system-prompt", SYSTEM_PROMPT, "--effort", "medium", "--model", model, "--max-turns", "3"];
+    const args = ["--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--no-session-persistence", "--permission-prompts", "none", "--tools", "", "-p", "--output-format", "json", "--json-schema", schema, "--system-prompt", systemPrompt, "--effort", "medium", "--model", model, "--max-turns", "3"];
     const env = { ...process.env };
     for (const name of Object.keys(env)) {
       if (/^(INPUT_|ACTIONS_|GH_|GITHUB_)/.test(name) || name === 'OPENAI_API_KEY' || name === 'ANTHROPIC_API_KEY') delete env[name];
@@ -610,7 +617,7 @@ async function runClaudeCode(prompt: string, schema: string, model: string, cwd:
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       finish(new Error("Claude Code CLI timed out"));
-    }, 120_000);
+    }, 180_000);
     const receive = (chunk: Buffer, include: boolean): void => {
       bytes += chunk.byteLength;
       if (bytes > MAX_RESPONSE_BYTES) {
