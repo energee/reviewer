@@ -39,10 +39,10 @@ export async function proposeFixes({ github, pull, findings, assertCurrent, acto
     }
     const branch = `agentic-review/pr-${pull.number}`;
     const existing = await github.listPulls(`${pull.base.repo.owner.login}:${branch}`);
-    const companion = existing.find(pr => pr.state === 'open' && pr.head.ref === branch && pr.base.ref === pull.head.ref &&
-        pr.body?.includes(FIX_MARKER) && pr.user?.login === actorLogin);
-    const closedCompanion = existing.find(pr => pr.state === 'closed' && pr.head.ref === branch && pr.base.ref === pull.head.ref &&
-        pr.body?.includes(FIX_MARKER) && pr.user?.login === actorLogin);
+    const owned = (pr) => pr.head.ref === branch && pr.base.ref === pull.head.ref &&
+        pr.body?.includes(FIX_MARKER) && pr.user?.login === actorLogin;
+    const companion = existing.find(pr => pr.state === 'open' && owned(pr));
+    const closedCompanion = existing.find(pr => pr.state === 'closed' && owned(pr));
     const ref = await github.getRef(branch);
     if (ref && companion && !companion.body?.includes(`<!-- fix-tip:${ref.object.sha} -->`)) {
         return { url: companion.html_url, notes: ['Fix branch changed outside this action; left untouched. Close the companion PR and delete its branch to allow a new proposal.'] };

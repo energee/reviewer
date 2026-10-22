@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Finding } from './reviewer.js';
+import { isObject as record, type Finding } from './reviewer.js';
 
 export const SUMMARY_MARKER = '<!-- agentic-review:summary -->';
 export type FindingLabel = { title: string; path: string };
@@ -13,10 +13,6 @@ export function findingId(finding: Finding): string {
   return createHash('sha256').update(JSON.stringify([
     finding.path, finding.side || 'RIGHT', finding.category, finding.title.trim().toLowerCase(),
   ])).digest('hex');
-}
-
-function record(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function decodeState(body: string): ReviewState {

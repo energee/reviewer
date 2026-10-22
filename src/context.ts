@@ -1,5 +1,5 @@
 import { matchesGlob } from 'node:path';
-import type { ReviewFile } from "./reviewer.js";
+import { safePath, type ReviewFile } from "./reviewer.js";
 
 const MAX_LISTED_FILES = 5_000;
 const MAX_INSTRUCTION_FILES = 32;
@@ -25,19 +25,6 @@ function byteLength(value: string): number {
   return Buffer.byteLength(value);
 }
 
-function safePath(path: string): boolean {
-  return path.length > 0
-    && path.length <= 1024
-    && !path.includes("\0")
-    && !path.includes("\\")
-    && !path.startsWith("/")
-    && !path.split("/").some((part) => part === "" || part === "." || part === "..");
-}
-
-function globMatches(pattern: string, path: string): boolean {
-  return matchesGlob(path, pattern);
-}
-
 function customPatterns(excludePaths: string[]): string[] {
   const patterns = excludePaths.flatMap(value => value.split(/\r?\n/)).map(value => value.trim()).filter(Boolean);
   if (patterns.length > 100 || patterns.some(pattern => !safePath(pattern) || pattern.startsWith('!'))) {
@@ -51,12 +38,12 @@ function isSensitivePath(path: string): boolean {
   if (path === ".git" || path.startsWith(".git/")) return true;
   if (name === ".env") return true;
   if (name.startsWith(".env.") && name !== ".env.example" && name !== ".env.sample") return true;
-  return globMatches("*.pem", name)
-    || globMatches("*.key", name)
-    || globMatches("*.p12", name)
-    || globMatches("*.pfx", name)
+  return matchesGlob(name, "*.pem")
+    || matchesGlob(name, "*.key")
+    || matchesGlob(name, "*.p12")
+    || matchesGlob(name, "*.pfx")
     || name === "credentials.json"
-    || globMatches("service-account*.json", name);
+    || matchesGlob(name, "service-account*.json");
 }
 
 function parentPaths(path: string): string[] {
@@ -76,7 +63,7 @@ function clampText(value: string, maxBytes: number): string {
 export async function createContext({ files, listFiles, readFile, excludePaths }: ContextOptions): Promise<ReviewContext> {
   const limitations: string[] = [];
   const patterns = customPatterns(excludePaths);
-  const isExcluded = (path: string): boolean => isSensitivePath(path) || patterns.some((pattern) => globMatches(pattern, path));
+  const isExcluded = (path: string): boolean => isSensitivePath(path) || patterns.some((pattern) => matchesGlob(path, pattern));
   const changed = new Set<string>();
   let excludedChanged = 0;
 

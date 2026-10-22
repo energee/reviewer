@@ -1,12 +1,10 @@
 import { createHash } from 'node:crypto';
+import { isObject as record } from './reviewer.js';
 export const SUMMARY_MARKER = '<!-- agentic-review:summary -->';
 export function findingId(finding) {
     return createHash('sha256').update(JSON.stringify([
         finding.path, finding.side || 'RIGHT', finding.category, finding.title.trim().toLowerCase(),
     ])).digest('hex');
-}
-function record(value) {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 export function decodeState(body) {
     const state = { dismissed: {}, findings: {} };
